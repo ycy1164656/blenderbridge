@@ -1,0 +1,7 @@
+interface:
+  display_name: "Blender Reference Modeling"
+  short_description: "Model game assets against approved visual references"
+  default_prompt: "Use $blender-reference-modeling to build this asset in Blender and verify its shape against the approved concept."
+policy:
+  allow_implicit_invocation: true
+

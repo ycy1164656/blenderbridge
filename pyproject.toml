@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "blender-bridge-local"
+version = "0.1.0"
+description = "Local Blender main-thread runtime, grouped MCP, CLI and modeling skills"
+requires-python = ">=3.11"
+dependencies = ["mcp>=1.26,<2"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "PyYAML>=6"]
+
+[project.scripts]
+blender-bridge = "blender_bridge.cli:main"
+blender-bridge-mcp = "blender_bridge.mcp_server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/blender_bridge"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+

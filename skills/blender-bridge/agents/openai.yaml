@@ -1,0 +1,7 @@
+interface:
+  display_name: "Blender Bridge"
+  short_description: "Inspect and edit Blender through a live local bridge"
+  default_prompt: "Use $blender-bridge to inspect the live Blender session, perform scoped edits and verify the result."
+policy:
+  allow_implicit_invocation: true
+
