@@ -5,6 +5,7 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP, Image
 from .client import connect, discover
 from .core import BridgeError
+from .host.gateway import Gateway
 
 mcp = FastMCP('BlenderBridge', instructions='Discover exact session, inspect live catalog, use revision on writes. Submit once; poll job after timeout. Render success is not art acceptance.')
 
@@ -16,16 +17,12 @@ async def blender_discover() -> list[dict]:
 
 
 @mcp.tool()
-async def blender_catalog(session: str, query: str = '', describe: str = '') -> dict:
+async def blender_catalog(session: str | None = None, query: str = '', describe: str = '') -> dict:
     """Search operation names/descriptions, or describe exact operation input schema."""
     def run():
-        ops = connect(session).call('catalog')['operations']
-        if describe:
-            for op in ops:
-                if op['name'] == describe: return op
-            raise ValueError('Unknown operation')
-        return {'operations':[{k:o[k] for k in ('name','description','mutates')} for o in ops
-                              if query.lower() in (o['name'] + ' ' + o['description']).lower()]}
+        result=Gateway().catalog(session,query,describe)
+        if describe:return result
+        return {'operations':[{k:o[k] for k in ('name','description','mutates','execution_domain','requires_session','requires_revision','writes_artifacts','long_running','availability')} for o in result['operations']]}
     return await asyncio.to_thread(run)
 
 
@@ -36,42 +33,31 @@ async def blender_health(session: str) -> dict:
 
 
 @mcp.tool()
-async def blender_execute(session: str, operation: str, args: dict, request_id: str, revision: int | None = None, wait_seconds: float = 1) -> dict:
+async def blender_execute(operation: str, args: dict, request_id: str, session: str | None = None, revision: int | None = None, wait_seconds: float = 1) -> dict:
     """Submit exact catalog operation with a stable unique request ID. Never auto-refresh revision or retry with a new ID."""
     def run():
-        c = connect(session)
-        job = c.submit(operation, args, revision, request_id)
-        return c.wait(job['id'], min(30,max(0,wait_seconds))) if wait_seconds else job
+        return Gateway().execute(operation,args,request_id,session,revision,min(30,max(0,wait_seconds)))
     return await asyncio.to_thread(run)
 
 
 @mcp.tool()
-async def blender_job(session: str, job_id: str, cancel_queued: bool = False) -> dict:
+async def blender_job(job_id: str, session: str | None = None, cancel_queued: bool = False) -> dict:
     """Query accepted work after disconnect/timeout, or cancel a queued job. Running calls cannot be cancelled."""
-    return await asyncio.to_thread(lambda: connect(session).call('cancel' if cancel_queued else 'job', {'id':job_id}))
+    return await asyncio.to_thread(lambda: Gateway().job(job_id,session,cancel_queued))
 
 
 @mcp.tool()
-async def blender_artifacts(session: str) -> dict:
+async def blender_artifacts(session: str | None = None) -> dict:
     """List generated files, hashes and source revisions."""
-    return await asyncio.to_thread(lambda: connect(session).call('artifacts'))
+    return await asyncio.to_thread(lambda: Gateway().artifacts(session))
 
 
 @mcp.tool()
-async def blender_view_image(session: str, artifact_id: str) -> Image:
-    """Return a verified rendered image inline. Only runtime-produced PNG artifacts are readable."""
+async def blender_view_image(artifact_id: str, session: str | None = None) -> Image:
+    """Return a registered hash-verified image inline and record delivery. Image delivery alone never grants review or acceptance."""
     def run():
-        c = connect(session)
-        entries = c.call('artifacts')['artifacts']
-        artifact = next((a for a in entries if a['id'] == artifact_id), None)
-        if not artifact or artifact['kind'] != 'image/png': raise ValueError('PNG artifact not found')
-        path = Path(artifact['path']).resolve()
-        root = Path(c.call('health')['output_root']).resolve()
-        if not path.is_relative_to(root) or path.stat().st_size > 16 * 1024 * 1024:
-            raise BridgeError('PATH_DENIED','Artifact outside root or too large')
-        data = path.read_bytes()
-        if hashlib.sha256(data).hexdigest() != artifact['sha256']: raise ValueError('Artifact changed since render')
-        return Image(data=data, format='png')
+        artifact,data=Gateway().image(artifact_id,session)
+        return Image(data=data,format=artifact['kind'].split('/')[1])
     return await asyncio.to_thread(run)
 
 

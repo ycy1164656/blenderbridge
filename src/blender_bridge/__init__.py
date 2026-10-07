@@ -1,8 +1,8 @@
 """Host imports do not load bpy. This package also installs as a Blender add-on."""
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 bl_info = {"name": "Blender Bridge", "author": "BlenderBridge contributors",
-           "version": (0, 1, 0), "blender": (4, 2, 0), "location": "View3D > Sidebar > Bridge",
-           "description": "Authenticated local modeling bridge", "category": "Interface"}
+           "version": (0, 2, 0), "blender": (4, 2, 0), "location": "View3D > Sidebar > Bridge",
+           "description": "Native visual modeling loop and game asset tools", "category": "Interface"}
 
 
 def register():

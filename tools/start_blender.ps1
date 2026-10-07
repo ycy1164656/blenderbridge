@@ -4,7 +4,8 @@ param(
     [string]$BlendFile,
     [string]$Blender = 'C:/Program Files/Blender Foundation/Blender 5.2/blender.exe',
     [switch]$Visible,
-    [switch]$AllowPython
+    [switch]$AllowPython,
+    [switch]$Installed
 )
 $ErrorActionPreference = 'Stop'
 $bridgeRepo = Split-Path -Parent $PSScriptRoot
@@ -18,9 +19,10 @@ New-Item -ItemType Directory -Path $bridgeLog -Force | Out-Null
 $bridgeArgs = @()
 if (-not $Visible) { $bridgeArgs += '--background' }
 if ($BlendFile) { $bridgeArgs += [System.IO.Path]::GetFullPath($BlendFile) } else { $bridgeArgs += '--factory-startup' }
-$bridgeArgs += @('--python', $bridgeLaunch, '--', '--output-root', $bridgeOutput)
+$bridgeArgs += @('--python-exit-code', '1', '--python', $bridgeLaunch, '--', '--output-root', $bridgeOutput)
 foreach ($bridgeRead in $ReadRoot) { $bridgeArgs += @('--read-root', [System.IO.Path]::GetFullPath($bridgeRead)) }
 if ($AllowPython) { $bridgeArgs += '--allow-python' }
+if ($Installed) { $bridgeArgs += '--installed' }
 foreach ($bridgeArg in $bridgeArgs) { if ($bridgeArg.Contains('"')) { throw 'Arguments cannot contain a double quote.' } }
 $bridgeQuoted = ($bridgeArgs | ForEach-Object { '"' + $_ + '"' }) -join ' '
 $bridgeStamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'

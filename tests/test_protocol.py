@@ -104,3 +104,27 @@ def test_http_auth_large_body_and_detached_job(tmp_path):
     finally:
         server.shutdown(); server.server_close()
 
+
+def test_restart_keeps_original_ids_but_interrupts_unfinished_work(tmp_path):
+    first=RuntimeState(tmp_path,max_jobs=1);queued=request(first);first.submit(queued)
+    restarted=RuntimeState(tmp_path,max_jobs=1)
+    assert restarted.job(queued['request_id'])['state']=='interrupted'
+    assert restarted.job(queued['request_id'])['error']['code']=='RESULT_UNKNOWN'
+    # Reconnection must never queue/replay the original old-session write.
+    assert restarted.submit(queued)['state']=='interrupted'
+    current=request(restarted);assert restarted.submit(current)['state']=='queued'
+    calls=[];restarted.execute_one(lambda n,a:calls.append(n) or {},lambda:{})
+    assert calls==['mesh.primitive']
+
+
+def test_memory_failure_reports_partial_scope_and_never_retries(tmp_path):
+    state=RuntimeState(tmp_path);q=request(state);state.submit(q);calls=[]
+    def controlled_failure(name,args):
+        calls.append(name);raise MemoryError('controlled allocation failure; no actual memory exhaustion')
+    state.execute_one(controlled_failure,lambda:{})
+    assert state.job(q['request_id'])['state']=='failed'
+    assert state.job(q['request_id'])['error']['partial_changes_possible']
+    assert state.submit(q)['state']=='failed'
+    state.execute_one(controlled_failure,lambda:{})
+    assert len(calls)==1
+

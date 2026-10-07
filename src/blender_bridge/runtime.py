@@ -32,6 +32,11 @@ class Runtime:
         if not self.running: return None
         if threading.get_ident() != self.main_thread: raise RuntimeError("bpy main-thread contract violated")
         self.state.execute_one(self.operations.execute, snapshot)
+        if self.discovery.stem != self.state.session:
+            old = self.discovery
+            self.discovery = old.with_name(self.state.session + '.json')
+            self.publish()
+            if old.exists(): old.unlink()
         return 0.03
 
     def stop(self):
@@ -55,7 +60,7 @@ def loaded(_):
     if _runtime:
         with _runtime.state.lock:
             old = _runtime.discovery
-            _runtime.state.session = str(uuid.uuid4())
+            _runtime.state.rotate_session()
             _runtime.state.revision += 1
             _runtime.discovery = old.with_name(_runtime.state.session + '.json')
             _runtime.state.snapshot = snapshot()

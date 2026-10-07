@@ -1,7 +1,7 @@
 interface:
   display_name: "Blender Bridge"
-  short_description: "Inspect and edit Blender through a live local bridge"
-  default_prompt: "Use $blender-bridge to inspect the live Blender session, perform scoped edits and verify the result."
+  short_description: "Inspect and refine supplied Blender assets"
+  default_prompt: "Use $blender-bridge to inspect my supplied or imported model, perform scoped refinements and verify the result; if only concept images exist, deliver the references and wait for my externally generated model."
 policy:
   allow_implicit_invocation: true
 

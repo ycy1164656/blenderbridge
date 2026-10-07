@@ -10,14 +10,8 @@ from .core import BridgeError
 
 
 def target(name, kind=None):
-    item = bpy.data.objects.get(name)
-    if item is None or item.name not in bpy.context.scene.objects:
-        raise ValueError(f"Object not in active scene: {name}")
-    if kind and item.type != kind:
-        raise ValueError(f"Expected {kind}: {name}")
-    if item.library or item.is_library_indirect:
-        raise ValueError("Linked library objects are read-only")
-    return item
+    from .operations_impl.common import resolve
+    return resolve(name,kind)
 
 
 def unique(name, table):
@@ -43,10 +37,13 @@ def object_info(ob):
         ob.data.calc_loop_triangles()
         data.update(vertices=len(ob.data.vertices), edges=len(ob.data.edges), faces=len(ob.data.polygons),
                     triangles=len(ob.data.loop_triangles), uv_layers=[u.name for u in ob.data.uv_layers])
-        if ob.vertex_groups:
-            sums = [sum(g.weight for g in v.groups) for v in ob.data.vertices]
+        rigs=[m.object for m in ob.modifiers if m.type=='ARMATURE' and m.object]
+        if ob.vertex_groups or rigs:
+            names={b.name for rig in rigs for b in rig.data.bones if b.use_deform}
+            sums = [sum(g.weight for g in v.groups if ob.vertex_groups[g.group].name in names) for v in ob.data.vertices]
             data["weights"] = {"unweighted": sum(w <= 1e-7 for w in sums),
-                               "non_normalized": sum(abs(w - 1) > 1e-4 for w in sums)}
+                               "non_normalized": sum(w>1e-7 and abs(w - 1) > 1e-4 for w in sums),
+                               "scope":"deform_bones_only", "armature_present":bool(rigs)}
     if ob.type == "ARMATURE":
         data["bones"] = [{"name": b.name, "parent": b.parent.name if b.parent else None,
                           "head": list(b.head_local), "tail": list(b.tail_local)} for b in ob.data.bones]
@@ -87,9 +84,12 @@ def selected(objects):
         for ob in bpy.context.selected_objects:
             ob.select_set(False)
         for ob in old:
-            if ob.name in bpy.context.scene.objects:
-                ob.select_set(True)
-        bpy.context.view_layer.objects.active = active
+            try:
+                if ob.name in bpy.context.view_layer.objects: ob.select_set(True)
+            except ReferenceError: pass
+        try:
+            bpy.context.view_layer.objects.active = active if active and active.name in bpy.context.view_layer.objects else None
+        except ReferenceError: bpy.context.view_layer.objects.active=None
 
 
 def link(ob, collection=None):
@@ -109,13 +109,32 @@ def point_at(ob, location):
 class Operations:
     def __init__(self, state):
         self.state = state
+        from .operations_impl import NativeOperations
+        self.native=NativeOperations(state,self)
 
     def execute(self, name, args):
         if bpy.context.mode != "OBJECT" and name not in ("scene.inspect", "object.inspect"):
             raise ValueError("Object mode required; leave the current user edit operation intact")
-        result = getattr(self, name.replace('.', '_'))(**args)
-        bpy.context.view_layer.update()
-        return result
+        from .catalog import OPS
+        from .operations_impl.common import guarded,resolve,identify
+        method=name.replace('.','_')
+        before=set(bpy.data.objects)
+        try:
+            if hasattr(self.native,method):result=getattr(self.native,method)(**args)
+            else:
+                if OPS[name]['mutates_scene']:
+                    if 'object' in args:guarded(resolve(args['object'],writable=True),args.get('indices'),name=='mesh.edit')
+                    for object_name in args.get('objects',[]):guarded(resolve(object_name))
+                result=getattr(self,method)(**args)
+            bpy.context.view_layer.update()
+            created=set(bpy.data.objects)-before
+            for ob in created:identify(ob)
+            if isinstance(result,dict) and result.get('type') and result.get('name') in {o.name for o in created}:
+                from .operations_impl.common import info
+                result.update(info(bpy.data.objects[result['name']]))
+            return result
+        finally:
+            for ob in set(bpy.data.objects)-before:identify(ob)
 
     def scene_inspect(self, offset=0, limit=100):
         objects = sorted(bpy.context.scene.objects, key=lambda o: o.name)
@@ -468,11 +487,13 @@ class Operations:
         link(ob)
         with selected([ob]):
             bpy.ops.object.mode_set(mode='EDIT')
-            for b in bones:
-                bone = data.edit_bones.new(b['name'])
-                bone.head, bone.tail = b['head'], b['tail']
-                if b.get('parent'): bone.parent = data.edit_bones[b['parent']]
-            bpy.ops.object.mode_set(mode='OBJECT')
+            try:
+                for b in bones:
+                    bone = data.edit_bones.new(b['name'])
+                    bone.head, bone.tail = b['head'], b['tail']
+                    if b.get('parent'): bone.parent = data.edit_bones[b['parent']]
+            finally:
+                if bpy.context.mode!='OBJECT':bpy.ops.object.mode_set(mode='OBJECT')
         return object_info(ob)
 
     def rig_bind(self, object, armature, weights):

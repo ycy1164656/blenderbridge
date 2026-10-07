@@ -24,8 +24,14 @@ INDICES = arr(I, 1, 100000)
 OPS = {}
 
 
-def op(name, description, props=None, required=(), write=False):
-    OPS[name] = {"name": name, "description": description, "mutates": write,
+def op(name, description, props=None, required=(), write=False, *, domain="blender_main_thread",
+       artifacts=False, long_running=False, gui=False, gpu=False, cancellation="queued_only"):
+    scene = domain == "blender_main_thread"
+    OPS[name] = {"name": name, "description": description, "mutates": bool(write and scene),
+                 "mutates_scene": bool(write and scene), "writes_artifacts": artifacts,
+                 "execution_domain": domain, "long_running": long_running,
+                 "requires_gui": gui, "requires_gpu": gpu, "cancellation": cancellation,
+                 "requires_session": scene, "requires_revision": scene and (write or artifacts),
                  "inputSchema": obj(props or {}, required)}
 
 
@@ -94,18 +100,35 @@ op("python.execute", "Trusted unrestricted Python fallback; disabled unless runt
 
 
 def validate(value, schema, path="args"):
+    if not schema:
+        import json
+        json.dumps(value, allow_nan=False)
+        return
+    if "oneOf" in schema or "anyOf" in schema:
+        matches = 0
+        for variant in schema.get("oneOf", schema.get("anyOf", [])):
+            try:
+                validate(value, variant, path)
+                matches += 1
+            except ValueError:
+                pass
+        if not matches or ("oneOf" in schema and matches != 1):
+            raise ValueError(f"{path}: no unique supported variant")
+        return
     kind = schema.get("type")
-    types = {"object": dict, "array": list, "string": str, "boolean": bool, "integer": int, "number": (int, float)}
+    types = {"object": dict, "array": list, "string": str, "boolean": bool, "integer": int, "number": (int, float), "null": type(None)}
     if not isinstance(value, types[kind]) or (kind in ("integer", "number") and isinstance(value, bool)):
         raise ValueError(f"{path}: expected {kind}")
     if kind == "object":
         props = schema["properties"]
-        if set(value) - set(props):
+        extra = set(value) - set(props)
+        additional = schema.get("additionalProperties", False)
+        if extra and additional is False:
             raise ValueError(f"{path}: unknown keys {sorted(set(value) - set(props))}")
         if set(schema.get("required", [])) - set(value):
             raise ValueError(f"{path}: missing required keys")
         for key, item in value.items():
-            validate(item, props[key], f"{path}.{key}")
+            validate(item, props.get(key, additional if isinstance(additional, dict) else {}), f"{path}.{key}")
     elif kind == "array":
         if not schema.get("minItems", 0) <= len(value) <= schema.get("maxItems", 100000):
             raise ValueError(f"{path}: invalid array length")
@@ -119,3 +142,10 @@ def validate(value, schema, path="args"):
             raise ValueError(f"{path}: invalid numeric range")
     if "enum" in schema and value not in schema["enum"]:
         raise ValueError(f"{path}: expected one of {schema['enum']}")
+
+
+# One contract registry. Domain modules only contribute entries through op().
+for _name in ("scene.save", "export.fbx", "preview.render", "preview.viewport"):
+    OPS[_name].update(writes_artifacts=True, requires_revision=True,
+                      long_running=True, requires_gui=_name == "preview.viewport")
+from .catalog_domains import native, host  # noqa: E402,F401

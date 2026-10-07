@@ -1,4 +1,6 @@
 from pathlib import Path
+import json
+import uuid
 import bpy
 from bpy.props import StringProperty, IntProperty, BoolProperty
 from . import runtime
@@ -51,12 +53,55 @@ class BBPanel(bpy.types.Panel):
             self.layout.label(text=f"Session: {state.session[:8]}")
             self.layout.label(text=f"Revision: {state.revision}")
             self.layout.label(text=f"Port: {runtime._runtime.server.server_port}")
+            from . import __version__
+            self.layout.label(text=f"Native tools: {__version__}")
+            self.layout.label(text=f"Active job: {state.active_job or 'none'}")
+            summary=state.output_root/'.bridge'/'modeling-status.json'
+            if summary.is_file():
+                try:
+                    model=json.loads(summary.read_text(encoding='utf-8'));box=self.layout.box()
+                    box.label(text=f"Asset: {model.get('asset_id','-')} / R{model.get('candidate_revision','-')}")
+                    box.label(text=f"Reference: {model.get('reference_id','-')}")
+                    box.label(text=f"Phase: {model.get('phase','-')}")
+                    box.label(text=f"Open differences: {len(model.get('open_issues') or [])}")
+                    images=model.get('images') or [];box.label(text=f"Review images: {len(images)}")
+                    if images:
+                        button=box.operator('blender_bridge.open_artifact',text='Open latest review image');button.path=images[0]['path']
+                    box.label(text='User acceptance remains separate')
+                except (OSError,ValueError):self.layout.label(text='Modeling status unavailable')
+            checkpoints=list((state.output_root/'checkpoints').glob('*/checkpoint.json'))
+            self.layout.label(text=f"Checkpoints: {len(checkpoints)}")
+            self.layout.operator('blender_bridge.checkpoint_selection')
+            button=self.layout.operator('blender_bridge.open_artifact',text='Open output directory');button.path=str(state.output_root)
             self.layout.operator('blender_bridge.stop')
         else:
             self.layout.operator('blender_bridge.start')
 
 
-CLASSES = (BBPreferences, BBStart, BBStop, BBPanel)
+class BBOpenArtifact(bpy.types.Operator):
+    bl_idname='blender_bridge.open_artifact'
+    bl_label='Open Blender Bridge Artifact'
+    path:StringProperty()
+
+    def execute(self,context):
+        if not runtime._runtime:return {'CANCELLED'}
+        path=Path(self.path).resolve();root=runtime._runtime.state.output_root
+        if not path.is_relative_to(root) or not path.exists():self.report({'ERROR'},'Artifact outside current output root or missing');return {'CANCELLED'}
+        bpy.ops.wm.path_open(filepath=str(path));return {'FINISHED'}
+
+
+class BBCheckpointSelection(bpy.types.Operator):
+    bl_idname='blender_bridge.checkpoint_selection'
+    bl_label='Checkpoint Selected Objects'
+
+    def execute(self,context):
+        if not runtime._runtime or not context.selected_objects:self.report({'ERROR'},'Select exact objects in a running Bridge session');return {'CANCELLED'}
+        state=runtime._runtime.state
+        state.submit({'operation':'checkpoint.create','args':{'label':'Sidebar selection','objects':[o.name for o in context.selected_objects]},'session':state.session,'revision':state.revision,'request_id':str(uuid.uuid4())})
+        return {'FINISHED'}
+
+
+CLASSES = (BBPreferences, BBStart, BBStop, BBOpenArtifact, BBCheckpointSelection, BBPanel)
 
 
 def register():

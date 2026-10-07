@@ -1,7 +1,7 @@
 interface:
-  display_name: "Blender Reference Modeling"
-  short_description: "Model game assets against approved visual references"
-  default_prompt: "Use $blender-reference-modeling to build this asset in Blender and verify its shape against the approved concept."
+  display_name: "Blender Model Refinement"
+  short_description: "Refine imported models against approved references"
+  default_prompt: "Use $blender-reference-modeling to inspect and refine my imported model against the approved concept; if the model is not available, deliver the separate reference images and wait for it."
 policy:
   allow_implicit_invocation: true
 

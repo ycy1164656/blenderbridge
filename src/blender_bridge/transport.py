@@ -45,7 +45,7 @@ def start_http(state, port=0):
                 if self.path == "/health":
                     result = state.health()
                 elif self.path == "/catalog":
-                    result = {"operations": [v for k, v in OPS.items() if k != "python.execute" or state.allow_python]}
+                    result = {"operations": [v for k, v in OPS.items() if v['execution_domain'] == 'blender_main_thread' and (k != "python.execute" or state.allow_python)]}
                 elif self.path == "/submit":
                     result = state.submit(data)
                 elif self.path == "/job":
