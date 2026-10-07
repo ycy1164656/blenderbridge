@@ -27,7 +27,9 @@ native("object.parent", "Set or clear parent while preserving world transform wh
 native("object.origin", "Move pivot to an explicit world location without moving visible geometry.", {"object":S,"location":V}, ["object","location"])
 native("object.visibility", "Set exact object viewport/render visibility.", {"objects":IDS,"viewport":B,"render":B}, ["objects"])
 native("object.join", "Join only explicit independent meshes into named target and preserve source part provenance.", {"objects":IDS,"name":S}, ["objects","name"])
-native("object.separate", "Separate explicit face region or connected components, update part IDs and invalidate selections.", {"object":S,"faces":INDICES,"mode":enum("faces","loose"),"name":S}, ["object","name"])
+native("object.separate", "Separate explicit faces, a current vertex selection, or loose components. selection_id requires explicit face_policy; keep_original splits an independent copy. Verify base positions, UVs, materials and weights; invalidate only edited-source selections.",
+       {"object":S,"faces":INDICES,"selection_id":S,"face_policy":enum("all_vertices","any_vertex"),
+        "mode":enum("faces","loose"),"name":S,"keep_original":B}, ["object","name"])
 native("collection.inspect", "Read exact collection object IDs and nested collections.", {"collection":S}, ["collection"], False)
 native("collection.move", "Link exact objects into destination; unlink old collections only when requested.", {"objects":IDS,"collection":S,"unlink_others":B}, ["objects","collection"])
 native("collection.duplicate", "Duplicate a collection hierarchy with independent meshes by default.", {"collection":S,"name":S,"linked":B}, ["collection","name"])

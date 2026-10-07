@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "blender-bridge-local"
-version = "0.2.0"
+version = "0.3.0"
 description = "Local Blender main-thread runtime, grouped MCP, CLI and modeling skills"
 requires-python = ">=3.11"
 dependencies = ["mcp>=1.26,<2", "Pillow>=11,<13", "psutil>=7,<8"]

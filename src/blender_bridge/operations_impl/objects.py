@@ -162,29 +162,97 @@ class ObjectOps(Base):
         save_parts(parts);active['bb_join_sources']=json.dumps(provenance)
         return {'object':info(active),'sources':provenance,'region_mappings':'requires_explicit_reassignment'}
 
-    def object_separate(self,object,name,faces=None,mode='faces'):
+    def object_separate(self,object,name,faces=None,mode='faces',selection_id=None,face_policy=None,keep_original=False):
+        import bmesh
         from ..operations import selected
         from .common import index_check
-        ob=resolve(object,'MESH',True);guarded(ob,topology_change=True);identify(ob)
-        if mode=='faces' and not faces:raise ValueError('Exact face indices required')
-        if faces:index_check(faces,len(ob.data.polygons))
-        existing=set(bpy.data.objects);source_id=ob['bb_object_id']
-        with selected([ob]):
-            for poly in ob.data.polygons:poly.select=mode=='loose' or poly.index in set(faces or [])
-            bpy.ops.object.mode_set(mode='EDIT')
-            try:bpy.ops.mesh.separate(type='LOOSE' if mode=='loose' else 'SELECTED')
-            finally:
-                if bpy.context.mode!='OBJECT':bpy.ops.object.mode_set(mode='OBJECT')
-        created=sorted(set(bpy.data.objects)-existing,key=lambda x:x.name)
-        for i,part in enumerate(created):
-            part.name=f'{name}_{i+1:03d}';part['bb_object_id']=str(uuid.uuid4());part.data['bb_mesh_id']=str(uuid.uuid4());part['bb_source_object_id']=source_id
-        parts=part_map()
-        for part in parts.values():
-            if source_id in part['object_ids']:
-                part['object_ids']+= [x['bb_object_id'] for x in created]
-                if part.get('indices') is not None:part['mapping_status']='needs_region_reassignment'
-        save_parts(parts)
-        return {'source':info(ob),'created':[info(x) for x in created]}
+        from .separation import capture, add_indices, remove_indices, verify, component_count, preserve_material_slots
+        original=resolve(object,'MESH',True)
+        if original.data.shape_keys:
+            raise BridgeError('UNSUPPORTED_DATA','Shape-key separation is not verified; source preserved')
+        if mode not in ('faces','loose'):raise ValueError('Expected faces or loose mode')
+        if mode=='loose':
+            if faces is not None or selection_id is not None or face_policy is not None:
+                raise ValueError('Loose mode cannot be combined with a face or vertex selection')
+            count=max(0,component_count(original.data)-1)
+        else:
+            if (faces is None)==(selection_id is None):
+                raise ValueError('Specify exactly one of faces or selection_id')
+            if selection_id is not None:
+                if face_policy not in ('all_vertices','any_vertex'):
+                    raise ValueError('selection_id requires explicit all_vertices or any_vertex face_policy')
+                selection=self._selection(selection_id)
+                if selection['object_id']!=original.get('bb_object_id'):
+                    raise BridgeError('SELECTION_OBJECT_MISMATCH','Selection belongs to another object')
+                vertices=set(selection['indices']);predicate=all if face_policy=='all_vertices' else any
+                faces=[p.index for p in original.data.polygons if predicate(v in vertices for v in p.vertices)]
+            elif face_policy is not None:
+                raise ValueError('face_policy applies only to selection_id')
+            if not faces:raise BridgeError('EMPTY_SELECTION','Selection contains no faces under this policy')
+            index_check(faces,len(original.data.polygons));count=1
+        if not keep_original:guarded(original,topology_change=True)
+        planned_names=[f'{name}_{i+1:03d}' for i in range(count)]
+        if keep_original:planned_names.append(name+'_remainder')
+        for target_name in planned_names:
+            if target_name in bpy.data.objects:raise BridgeError('NAME_CONFLICT',target_name)
+        before=capture(original)
+        identify(original);source_id=original['bb_object_id']
+        ob=duplicate_object(original,name+'_remainder',original.users_collection[0]) if keep_original else original
+        existing=set(bpy.data.objects);created=[];split_started=False
+        key=uuid.uuid4().hex
+        vertex_key='.bb_sep_v_'+key;face_key='.bb_sep_f_'+key
+        old_select_mode=tuple(bpy.context.scene.tool_settings.mesh_select_mode)
+        try:
+            add_indices(ob.data,vertex_key,face_key)
+            with selected([ob]):
+                bpy.context.scene.tool_settings.mesh_select_mode=(False,False,True)
+                bpy.ops.object.mode_set(mode='EDIT')
+                bm=bmesh.from_edit_mesh(ob.data)
+                bm.faces.ensure_lookup_table()
+                # Clearing faces alone leaves selected vertices/edges that can select adjacent faces.
+                for elements in (bm.faces,bm.edges,bm.verts):
+                    for element in elements:element.select_set(False)
+                bm.select_mode={'FACE'}
+                selected_faces=set(faces or [])
+                for face in bm.faces:
+                    if mode=='loose' or face.index in selected_faces:face.select_set(True)
+                bm.select_flush_mode();bmesh.update_edit_mesh(ob.data)
+                split_started=True
+                try:bpy.ops.mesh.separate(type='LOOSE' if mode=='loose' else 'SELECTED')
+                finally:
+                    if bpy.context.mode!='OBJECT':bpy.ops.object.mode_set(mode='OBJECT')
+            created=sorted(set(bpy.data.objects)-existing,key=lambda x:x.name)
+            if len(created)!=count:raise BridgeError('SEPARATION_DATA_CHANGED','Unexpected number of separated objects')
+            for part,target_name in zip(created,planned_names):
+                part.name=target_name
+                if part.name!=target_name:raise BridgeError('NAME_CONFLICT','Blender could not assign the exact output name')
+            preserve_material_slots(before,[ob,*created])
+            preservation=verify(before,[ob,*created],vertex_key,face_key)
+            if mode=='faces':
+                actual={item.value for part in created for item in part.data.attributes[face_key].data}
+                if actual!=set(faces):raise BridgeError('SEPARATION_DATA_CHANGED','Separated faces differ from the requested region')
+            if keep_original and capture(original)!=before:
+                raise BridgeError('SEPARATION_DATA_CHANGED','Preserved original changed')
+        finally:
+            bpy.context.scene.tool_settings.mesh_select_mode=old_select_mode
+            affected=sorted(set(bpy.data.objects)-existing,key=lambda x:x.name)
+            remove_indices([ob,*affected],(vertex_key,face_key))
+            # A validation failure is not a rollback. Keep partial objects identifiable
+            # and invalidate edited-source selections even when verification raises.
+            for part in affected:
+                identify(part,fresh=True);part['bb_source_object_id']=source_id
+            if split_started and not keep_original:
+                parts=part_map()
+                for part in parts.values():
+                    if source_id in part['object_ids']:
+                        part['object_ids']+= [x['bb_object_id'] for x in affected]
+                        if part.get('indices') is not None:part['mapping_status']='needs_region_reassignment'
+                save_parts(parts)
+                for sid,item in list(self.state.selections.items()):
+                    if item['object_id']==source_id:self.state.selections.pop(sid)
+        return {'source':info(ob),'created':[info(x) for x in created],
+                'original':info(original) if keep_original else None,'keep_original':keep_original,
+                'selection_id':selection_id,'face_policy':face_policy,'preservation':preservation}
 
     def collection_inspect(self,collection):
         col=globals()['collection'](collection)
