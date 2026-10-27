@@ -6,7 +6,7 @@ import shutil
 import uuid
 import bpy
 import bmesh
-from mathutils import Vector
+from mathutils import Vector, Matrix
 from mathutils.bvhtree import BVHTree
 from .common import resolve, guarded, fingerprint, info, new_mesh, index_check, write_json
 from .objects import duplicate_object
@@ -138,13 +138,45 @@ class GameOps:
         ob=new_mesh(name,vertices,faces,collection);ob['bb_role']='collision';ob['bb_collision_source']=source.name
         return {'object':info(ob),'kind':kind,'ue_name_valid':name.startswith('UCX_'+source.name+'_') if kind=='convex' else name.startswith('UBX_'+source.name+'_')}
 
-    def export_package(self,objects,directory,formats=('fbx','glb'),animation=False,frame_start=None,frame_end=None,profile=None):
+    def _export_ue_static_parts(self, obs, directory):
+        """Bake mesh-local centimeters on private copies; source objects and pivots stay untouched."""
+        if any(o.type!='MESH' or any(abs(s-1)>1e-6 for s in o.scale) or o.modifiers for o in obs):
+            raise ValueError('UE static parts require mesh objects with unit scale and applied modifiers')
+        factor=bpy.context.scene.unit_settings.scale_length*100
+        temporary=bpy.data.scenes.new('BridgeUEStaticExport');temporary.unit_settings.system='METRIC';temporary.unit_settings.scale_length=.01
+        copies=[];meshes=[];parts=[];artifacts=[]
+        try:
+            for source in obs:
+                mesh=source.data.copy();meshes.append(mesh);mesh.transform(Matrix.Scale(factor,4))
+                copy=bpy.data.objects.new(source.name+'__UEPart',mesh);copies.append(copy);temporary.collection.objects.link(copy)
+                parts.append({'source_object':source.name,'export_object':copy.name,'parent':source.parent.name if source.parent else None,
+                    'location_cm':[float(v)*factor for v in source.location],'rotation_radians':list(source.rotation_euler),'scale':list(source.scale),
+                    'matrix_world':[[float(v) for v in row] for row in source.matrix_world], 'mesh_units':'centimeters','local_pivot_preserved':True})
+            temporary.view_layers[0].update()
+            with bpy.context.temp_override(scene=temporary,view_layer=temporary.view_layers[0]):
+                for index,copy in enumerate(copies):
+                    for other in copies:other.select_set(False)
+                    copy.select_set(True);temporary.view_layers[0].objects.active=copy
+                    output=self.state.output_path(f'{directory}/parts/{index:03d}.fbx','.fbx')
+                    with bpy.context.temp_override(selected_objects=[copy],selected_editable_objects=[copy],active_object=copy,object=copy):
+                        bpy.ops.export_scene.fbx(filepath=str(output),use_selection=True,object_types={'MESH'},apply_unit_scale=True,
+                            apply_scale_options='FBX_SCALE_UNITS',axis_forward='-Y',axis_up='Z',add_leaf_bones=False,bake_anim=False,path_mode='AUTO')
+                    artifact=self.state.artifact(output,'model/fbx');artifacts.append(artifact);parts[index]['artifact']=artifact
+            return artifacts,parts
+        finally:
+            for copy in copies:bpy.data.objects.remove(copy,do_unlink=True)
+            for mesh in meshes:
+                if mesh.users==0:bpy.data.meshes.remove(mesh)
+            bpy.data.scenes.remove(temporary)
+
+    def export_package(self,objects,directory,formats=('fbx','glb'),animation=False,frame_start=None,frame_end=None,profile=None,semantic_forward=None,ue_static_mesh_parts=False):
         obs=[resolve(o) for o in objects]
         dependencies={o.parent for o in obs if o.parent}|{m.object for o in obs for m in o.modifiers if m.type=='ARMATURE' and m.object}
         missing=dependencies-set(obs)
         if missing:raise ValueError('Explicit export set must include dependencies: '+','.join(o.name for o in missing))
         if (frame_start is None)!=(frame_end is None) or frame_start is not None and (not animation or frame_start>frame_end):raise ValueError('Invalid explicit animation range')
-        scene=bpy.context.scene;old_range=(scene.frame_start,scene.frame_end,scene.frame_current);images={};textures=[];artifacts=[]
+        if ue_static_mesh_parts and (animation or list(formats)!=['fbx']):raise ValueError('UE static parts requires only FBX and animation=false')
+        scene=bpy.context.scene;old_range=(scene.frame_start,scene.frame_end,scene.frame_current);images={};textures=[];artifacts=[];ue_parts=[]
         for ob in obs:
             for slot in ob.material_slots:
                 if slot.material and slot.material.use_nodes:
@@ -161,7 +193,9 @@ class GameOps:
             if frame_start is not None:scene.frame_start=frame_start;scene.frame_end=frame_end
             source=self._save_source(obs,f'{directory}/source.blend');artifacts.append(source)
             for fmt in formats:
-                if fmt=='fbx':artifact=self.legacy.export_fbx(objects,f'{directory}/asset.fbx',animation,False,frame_start,frame_end)
+                if fmt=='fbx' and ue_static_mesh_parts:
+                    part_artifacts,ue_parts=self._export_ue_static_parts(obs,directory);artifacts.extend(part_artifacts);continue
+                elif fmt=='fbx':artifact=self.legacy.export_fbx(objects,f'{directory}/asset.fbx',animation,False,frame_start,frame_end)
                 else:
                     output=self.state.output_path(f'{directory}/asset.{fmt}','.'+fmt)
                     with selected(obs):
@@ -175,10 +209,13 @@ class GameOps:
         finally:
             for img,path in images.items():img.filepath=path
             scene.frame_start,scene.frame_end=old_range[:2];scene.frame_set(old_range[2])
-        manifest={'schema_version':1,'delivery_id':uuid.uuid4().hex,'source':source,'artifacts':artifacts,'textures':textures,
+        manifest={'schema_version':2,'delivery_id':uuid.uuid4().hex,'source':source,'artifacts':artifacts,'textures':textures,
                   'objects':[info(o) for o in obs],'source_hashes':{o.name:fingerprint(o) for o in obs},'profile':profile or {},
                   'animation':{'enabled':animation,'frame_range':[frame_start or scene.frame_start,frame_end or scene.frame_end],'fps':scene.render.fps/scene.render.fps_base},
-                  'coordinate_convention':'+Z up, front -Y; meters scaled by scene units','scale_length':scene.unit_settings.scale_length,
+                  'coordinate_convention':'+Z scene up; meters scaled by scene units; semantic forward is independent of export axes',
+                  'export_axes':{'fbx':{'forward':'-Y','up':'+Z'},'obj':{'forward':'-Y','up':'+Z'},'glb':{'up':'+Y','conversion':'Blender glTF exporter'}},
+                  'semantic_forward':semantic_forward or {'axis':None,'basis':'unknown','evidence':None},'scale_length':scene.unit_settings.scale_length,
+                  'ue_static_parts':{'enabled':ue_static_mesh_parts,'parts':ue_parts,'mesh_unit':'centimeters' if ue_static_mesh_parts else 'exporter_unit_metadata'},
                   'technical_validation':self.game_validate(objects,profile),'independent_readback':'not_run','visual_self_review':'not_run','user_visual_acceptance':'pending','ue_validation':'not_run'}
         artifact=write_json(self.state,f'{directory}/delivery.json',manifest)
         return {**manifest,'manifest':artifact}
@@ -186,7 +223,14 @@ class GameOps:
     def export_prepare_ue(self,manifest,destination='/ShooterRoyal/Generated'):
         source=self.state.input_path(manifest);data=json.loads(source.read_text(encoding='utf-8'))
         if not destination.startswith('/ShooterRoyal/'):raise ValueError('Plan destination must be under /ShooterRoyal/')
-        plan={'delivery_id':data['delivery_id'],'destination':destination,'files':data['artifacts'],'source_units':data['scale_length'],
+        plan={'delivery_id':data['delivery_id'],'manifest_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),'destination':destination,'files':data['artifacts'],'source_units':data['scale_length'],
+              'semantic_forward':data.get('semantic_forward',{'axis':None,'basis':'unknown','evidence':None}),
+              'export_axes':data.get('export_axes',{}),'legacy_coordinate_convention':data.get('coordinate_convention'),
+              'ue_fbx_static_mesh_settings':{'convert_scene':True,'convert_scene_unit':True,'force_front_x_axis':False,
+                  'import_uniform_scale':1.0,'transform_vertex_to_absolute':False,'bake_pivot_in_vertex':False,
+                  'combine_meshes':False,'remove_degenerates':False,'import_materials':False,'import_textures':False},
+              'ue_static_parts':data.get('ue_static_parts',{'enabled':False,'parts':[]}),
+              'unit_validation':'For preserved local pivots use ue_static_mesh_parts FBX; ordinary FBX unit metadata alone does not prove local mesh units. Compare each imported part against manifest dimensions in centimeters.',
               'actions':['核对尺寸与朝向','按目标骨架核对重定向映射','显式确认导入资产白名单','导入后检查材质、碰撞、LOD、动画与运行时表现'],
               'status':'plan_only','content_written':False,'ue_validation':'not_run'}
         return write_json(self.state,f'ue-plans/{data["delivery_id"]}-{uuid.uuid4().hex[:8]}.json',plan)

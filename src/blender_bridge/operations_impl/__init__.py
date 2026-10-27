@@ -9,7 +9,8 @@ from .surface import SurfaceOps
 from .rigging import RigOps
 from .game import GameOps
 from .textures import TextureOps
+from .node_graph import NodeGraphOps
 
 
-class NativeOperations(ObjectOps, GeometryOps, SelectionOps, ModifierOps, PreviewOps, CheckpointOps, SurfaceOps, RigOps, GameOps, TextureOps):
+class NativeOperations(ObjectOps, GeometryOps, SelectionOps, ModifierOps, PreviewOps, CheckpointOps, SurfaceOps, RigOps, GameOps, TextureOps, NodeGraphOps):
     pass

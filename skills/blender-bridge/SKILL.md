@@ -13,6 +13,8 @@ Use this repository's runtime and live catalog for Blender work. Do not invent B
 - **External model supplied or imported:** the user generates the initial model with their chosen online service. Continue when an actual model file with its textures, or an identified imported scene object, is available and refinement is requested. Record the source path/hash and target objects; preserve the original. Inspect dimensions, axes, disconnected/fused parts, topology, normals, UVs, materials and any rig before planning local corrections. Use `$blender-reference-modeling` for this refinement stage.
 - **Other explicit Blender edits:** operate on the user's existing scene or supplied asset within the requested scope. The external-model handoff does not block ordinary inspection, material edits, animation, export or tool maintenance.
 
+For supplied high-poly/PBR models intended for a game engine, read [model import and handoff](references/model-handoff.md) when choosing optimization, animation ownership, or export evidence. It separates source preparation from gameplay integration and lists cross-Host review pitfalls; engine-specific settings remain in the destination project's skill.
+
 Do not upload images, invoke an online modeling service, download weights or replace the user's model as an implied step. New explicit user instructions may select a different creation workflow; do not infer that change from an approved image.
 
 ## Connect and inspect
@@ -49,6 +51,10 @@ For concept-based asset work, enter this loop only after the external model is a
 Long operations can run on an immutable blend through `worker.submit` in an owned background Blender. Query the original Host job after disconnect. `worker.cancel` requires the exact registered PID/start/executable/command identity and retains partial output; it never stops an unrelated Blender or pretends a running interactive bpy call can be interrupted safely. BlenderBridge supplies the inspection/refinement toolchain; it does not bundle an image-to-3D engine or run the user's online generation step.
 
 ## Report honestly
+
+For bounded Geometry Nodes, shader or compositor edits, use `node_graph.inspect` to obtain the exact owner, session/revision, graph token, node names and live socket/RNA enum schema. `node_graph.patch` works on private copies, evaluates before switching the specified owner, and reports `applied`, `rolled_back` or `rollback_failed`. Shared graphs and external images remain protected; linked input defaults require an explicit unlink. Nested edits use an exact `group_path`. Unknown outcomes require readback, not replay. Export manifest v2 separates exporter axis conversion from `semantic_forward`; provide a measured/declared axis with evidence or leave it unknown. Never infer semantic front from FBX forward-axis settings.
+
+For static meshes requiring preserved local pivots in UE, use `export.package(ue_static_mesh_parts=true, formats=["fbx"])` on meshes with unit scale and applied modifiers. It exports separate centimeter-local FBXs from private copies and records parent, local assembly transform and original dimensions; source scene/data remain unchanged. Ordinary FBX unit metadata alone does not guarantee UE's local-mesh import dimensions. Read `export.prepare_ue` settings and validate every part after import. A separate UE receipt must bind the delivery ID, manifest/FBX hashes, actual import sources, dimensions, material/texture references, LOD/collision and assembly motion. Preserve source geometry warnings and keep human acceptance pending.
 
 List changed objects/files, saved versus unsaved state, session/PID when applicable, actual validation and untested limitations. State whether the handoff is images awaiting an external model, an inspected import, or a refined asset. Keep technical validation separate from artistic acceptance. UE import remains a separate UnrealBridge/project workflow.
 

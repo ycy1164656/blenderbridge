@@ -3,11 +3,14 @@ import asyncio
 import hashlib
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP, Image
+from . import __version__
 from .client import connect, discover
 from .core import BridgeError
 from .host.gateway import Gateway
 
 mcp = FastMCP('BlenderBridge', instructions='Discover exact session, inspect live catalog, use revision on writes. Submit once; poll job after timeout. Render success is not art acceptance.')
+# MCP 1.x exposes the initialize version on its low-level server.
+mcp._mcp_server.version = __version__
 
 
 @mcp.tool()

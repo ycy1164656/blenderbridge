@@ -132,5 +132,18 @@ native("recipe.replay", "Rebuild a parametric geometry recipe into a new object,
 native("game.validate", "Check explicit game profile, transforms, mesh/UV/weights, materials, dimensions and unknown requirements.", {"objects":IDS,"profile":MAP}, ["objects"], False)
 native("game.lod", "Create independent named LOD meshes with explicit reduction ratios and deviation reports.", {"object":S,"ratios":arr(UNIT,1,8),"collection":S}, ["object","ratios"])
 native("game.collision", "Create separately named convex-hull or box collision mesh from exact source.", {"object":S,"name":S,"kind":enum("convex","box"),"collection":S}, ["object","name"])
-native("export.package", "Save editable blend, selected FBX/GLB, textures and manifest using explicit objects/profile/range.", {"objects":IDS,"directory":S,"formats":arr(enum("fbx","glb","obj"),1,3),"animation":B,"frame_start":I,"frame_end":I,"profile":MAP}, ["objects","directory"], False, True, True)
+semantic_forward = obj({"axis":enum("+X","-X","+Y","-Y","+Z","-Z"),"basis":enum("declared","measured"),"evidence":S}, ["axis","basis","evidence"])
+native("export.package", "Save editable blend, selected FBX/GLB, textures and manifest; optional UE static parts bake centimeters into temporary mesh copies and retain assembly transforms.", {"objects":IDS,"directory":S,"formats":arr(enum("fbx","glb","obj"),1,3),"animation":B,"frame_start":I,"frame_end":I,"profile":MAP,"semantic_forward":semantic_forward,"ue_static_mesh_parts":B}, ["objects","directory"], False, True, True)
 native("export.prepare_ue", "Create read-only Unreal import plan from explicit export manifest; never writes UE content.", {"manifest":S,"destination":S}, ["manifest"], False, True)
+
+# Exact owner + graph token complements the runtime session/revision guard.
+graph_owner = obj({"kind":enum("geometry","shader","compositor"),"object":S,"modifier":S,"material_slot":I,"scene":S,"group_path":arr(S,0,16)}, ["kind"])
+graph_value = {"anyOf":[N,B,S,arr(N,2,4)]}
+graph_action = {"oneOf":[
+    obj({"action":enum("add_node"),"node":S,"node_type":S},["action","node","node_type"]),
+    obj({"action":enum("set_input"),"node":S,"socket":S,"value":graph_value},["action","node","socket","value"]),
+    obj({"action":enum("set_property"),"node":S,"property":S,"value":graph_value},["action","node","property","value"]),
+    obj({"action":enum("link","unlink"),"from_node":S,"from_socket":S,"to_node":S,"to_socket":S},["action","from_node","from_socket","to_node","to_socket"])
+]}
+native("node_graph.inspect", "Read a bounded subgraph, exact socket identifiers, live RNA enums and a session-bound graph token; performs no writes.", {"owner":graph_owner,"nodes":arr(S,0,64),"limit":{"type":"integer","minimum":1,"maximum":64}}, ["owner"], False)
+native("node_graph.patch", "Patch a private graph copy, evaluate it, then switch only the exact owner. No implicit link replacement; reports applied/rolled_back/rollback_failed.", {"owner":graph_owner,"graph_token":S,"actions":arr(graph_action,1,64)}, ["owner","graph_token","actions"], True, False, True)
