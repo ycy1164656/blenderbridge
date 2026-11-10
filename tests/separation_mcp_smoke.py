@@ -1,4 +1,4 @@
-"""Fresh MCP client, restricted to an explicitly identified owned 0.3.1 runtime."""
+"""Fresh MCP client, restricted to an explicitly identified owned current runtime."""
 import argparse
 import asyncio
 import json
@@ -39,7 +39,7 @@ async def main():
             initial = await health()
             assert initial['pid'] == args.expected_pid
             assert Path(initial['output_root']).resolve() == output
-            assert initial['bridge_version'] == '0.3.1' and not initial['allow_python']
+            assert initial['bridge_version'] == '0.4.0' and not initial['allow_python']
             assert initial['snapshot']['background'] and not initial['snapshot']['filepath']
             assert initial['revision'] == 0, 'Use a fresh owned factory runtime'
             catalog = await call('blender_catalog', {'session': args.session, 'describe': 'object.separate'})

@@ -2,7 +2,7 @@
 
 代码仓库：[ycy1164656/blenderbridge](https://github.com/ycy1164656/blenderbridge)。
 
-本地 Blender 原生视觉闭环建模工具，包含 Blender 插件、主线程运行时、持久 Host、MCP、命令行与两项建模技能。当前版本 **0.3.1**，本机验证 **Blender 5.2.2 LTS / Windows / Python 3.12.12 / MCP SDK 1.30.0**。
+本地 Blender 原生视觉闭环建模工具，包含 Blender 插件、主线程运行时、持久 Host、MCP、命令行与两项建模技能。当前版本 **0.4.0**，沿用已验证的 **Blender 5.2.2 LTS / Windows / Python 3.12.12 / MCP SDK 1.30.0** 基线。本次为 minor 版本整理，不增加模型质量或兼容性承诺。
 
 用于通过“检查场景 → 小步编辑 → 实际渲染 → 读回验证”的方式制作游戏模型。桥接能力通过并不代表模型已经达到概念图质量。
 
@@ -52,7 +52,7 @@ uv run python tools/install_skills.py --apply
 uv run python tools/register_codex.py
 ```
 
-Blender 插件包为 `dist/blender_bridge-0.3.1.zip`，递归包含 43 个 Python 文件与所有权哈希清单。可在 Blender 中安装；`tools/install_addon.py` 需由 Blender 执行，先核对旧所有权清单、备份插件和偏好，再按显式 `--upgrade --apply` 升级并验证实际安装哈希。首次管理旧插件需要匹配的 `--previous-archive`。保留原输出路径、读目录、端口和 Python 开关；不替换其他插件。
+Blender 插件包为 `dist/blender_bridge-0.4.0.zip`，递归包含 43 个 Python 文件与所有权哈希清单。可在 Blender 中安装；`tools/install_addon.py` 需由 Blender 执行，先核对旧所有权清单、备份插件和偏好，再按显式 `--upgrade --apply` 升级并验证实际安装哈希。首次管理旧插件需要匹配的 `--previous-archive`。保留原输出路径、读目录、端口和 Python 开关；不替换其他插件。
 
 0.3.0 的区域选区与拆件参数见 [区域拆件说明](skills/blender-bridge/references/separation.md)。正在运行的旧 Blender/MCP 进程不会热更新：下一次使用新参数前重新启动对应实例或客户端连接，并核对实时 schema；不要中断其他任务的工作实例。
 
@@ -76,7 +76,7 @@ Blender 测试必须加 `--python-exit-code 1`。启动测试实例、停止实�
 
 当前没有原子事务回滚；一次失败可能留下部分修改。先保存检查点，失败后检查现场。交互实例内运行中的 bpy/渲染不支持安全强制取消；隔离 worker 可以按准确归属中断并保留部分产物。仅验证列出的版本与场景，未强制耗尽实际显存/RAM，未做大型长局性能验收。UV 栅格检测不保证发现亚像素重叠。
 
-本次交付：[0.3.1 节点图与 UE 交接升级](docs/007_BlenderBridge_0.3.1_节点图与UE交接升级(done).md)。历史 [0.3.0 区域拆件报告](docs/006_BlenderBridge_0.3.0_区域拆件升级与验证(done).md) 保留原验证范围。
+本次交付：[0.4.0 minor 版本发布](docs/008_BlenderBridge_0.4.0_版本发布(done).md)。历史 [0.3.1 节点图与 UE 交接升级](docs/007_BlenderBridge_0.3.1_节点图与UE交接升级(done).md) 和 [0.3.0 区域拆件报告](docs/006_BlenderBridge_0.3.0_区域拆件升级与验证(done).md) 保留原验证范围。
 
 0.2.0 历史交付：[完整升级与验证报告](docs/005_BlenderBridge_0.2.0_原生视觉闭环升级与验证(done).md)、[完整规格](docs/004_Blender原生视觉闭环建模完整升级规格.md)、[机甲参考/R3/R4 对比](artifacts/native-modeling/a02/final/approved-R3-R4.png)。历史机甲仅完成当时的局部比例改善自评，完整概念匹配及用户视觉接受仍待评审。
 

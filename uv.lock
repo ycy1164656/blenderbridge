@@ -41,7 +41,7 @@ wheels = [
 
 [[package]]
 name = "blender-bridge-local"
-version = "0.3.1"
+version = "0.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "mcp" },

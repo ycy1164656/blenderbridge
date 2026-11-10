@@ -1,4 +1,4 @@
-"""0.3.1 separation tests in an owned factory-startup Blender, never a user scene.
+"""Current-release separation tests in an owned factory-startup Blender, never a user scene.
 
 Use --python-exit-code 1. --readback <manifest> runs in a second process.
 --installed verifies the installed add-on rather than the source checkout.
@@ -28,7 +28,7 @@ from blender_bridge.catalog import OPS, validate
 from blender_bridge.core import RuntimeState
 from blender_bridge.operations import Operations
 
-assert __version__ == '0.3.1', __version__
+assert __version__ == '0.4.0', __version__
 state = RuntimeState(OUT)
 ops = Operations(state)
 results = []
